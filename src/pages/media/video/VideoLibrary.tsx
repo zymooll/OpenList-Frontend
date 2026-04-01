@@ -11,13 +11,27 @@ import { useColorMode } from "@hope-ui/solid"
 import { MediaLayout } from "../MediaLayout"
 import { MediaBrowser } from "../MediaBrowser"
 import { getMediaItem } from "~/utils/media_api"
-import { fsGet } from "~/utils/api"
 import type { MediaItem } from "~/types"
 import { getMediaName, parseAuthors } from "~/types"
-import { base_path, ext } from "~/utils"
+import { api, base_path, ext } from "~/utils"
 import Artplayer from "artplayer"
+import artplayerProxyMediabunny from "~/components/artplayer-proxy-mediabunny"
 import Hls from "hls.js"
 import mpegts from "mpegts.js"
+import { registerAc3Decoder } from "@mediabunny/ac3"
+
+// MediaBunny 播放器开关：从 localStorage 读取用户偏好
+const MEDIABUNNY_KEY = "use_mediabunny_player"
+function isMediaBunnyEnabled(): boolean {
+  return localStorage.getItem(MEDIABUNNY_KEY) === "true"
+}
+function setMediaBunnyEnabled(enabled: boolean) {
+  localStorage.setItem(MEDIABUNNY_KEY, enabled ? "true" : "false")
+}
+// 仅在启用 MediaBunny 时注册 AC3 解码器
+if (isMediaBunnyEnabled()) {
+  registerAc3Decoder()
+}
 
 // ==================== 视频卡片 ====================
 const VideoCard = (props: { item: MediaItem }) => {
@@ -144,36 +158,18 @@ const VideoPlayer = (props: { item: MediaItem; onClose: () => void }) => {
   let hlsPlayer: Hls | undefined
   let flvPlayer: mpegts.Player | undefined
 
-  const [rawUrl, setRawUrl] = createSignal("")
-  const [loading, setLoading] = createSignal(true)
-  const [error, setError] = createSignal("")
+  // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
+  const videoUrl = () => `${api}/p${props.item.file_path}?force`
 
-  onMount(async () => {
-    // 通过 fsGet 获取文件的 raw_url
-    try {
-      const resp = await fsGet(props.item.file_path)
-      if (resp.code === 200 && resp.data?.raw_url) {
-        setRawUrl(resp.data.raw_url)
-      } else {
-        setError("获取播放地址失败：" + (resp.message || "未知错误"))
-      }
-    } catch (e: any) {
-      setError("获取播放地址失败：" + e.message)
-    } finally {
-      setLoading(false)
-    }
-  })
-
-  // 当 rawUrl 就绪后初始化 Artplayer
-  const initPlayer = (url: string) => {
-    if (!playerContainer || !url) return
+  onMount(() => {
+    if (!playerContainer) return
     const fileExt = ext(props.item.file_name)
     player = new Artplayer({
       container: playerContainer,
-      url,
+      url: videoUrl(),
       title: getMediaName(props.item),
       volume: 1.0,
-      autoplay: true,
+      autoplay: false,
       autoSize: false,
       loop: false,
       flip: true,
@@ -188,6 +184,8 @@ const VideoPlayer = (props: { item: MediaItem; onClose: () => void }) => {
       mutex: true,
       playsInline: true,
       type: fileExt,
+      setting: true,
+      ...(isMediaBunnyEnabled() ? { proxy: artplayerProxyMediabunny() } : {}),
       customType: {
         m3u8: (video: HTMLMediaElement, src: string) => {
           hlsPlayer = new Hls()
@@ -205,10 +203,29 @@ const VideoPlayer = (props: { item: MediaItem; onClose: () => void }) => {
         // @ts-ignore
         "webkit-playsinline": true,
         playsInline: true,
-        crossOrigin: "anonymous",
       },
+      settings: [
+        {
+          id: "setting_mediabunny",
+          html: "MediaBunny 播放器",
+          tooltip: isMediaBunnyEnabled() ? "已启用" : "已禁用",
+          icon: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+          switch: isMediaBunnyEnabled(),
+          onSwitch: function (item: any) {
+            const newVal = !item.switch
+            setMediaBunnyEnabled(newVal)
+            item.tooltip = newVal ? "已启用" : "已禁用"
+            setTimeout(() => {
+              if (confirm("切换播放器需要刷新页面才能生效，是否立即刷新？")) {
+                location.reload()
+              }
+            }, 100)
+            return newVal
+          },
+        },
+      ],
     })
-  }
+  })
 
   onCleanup(() => {
     if (player?.video) player.video.src = ""
@@ -266,50 +283,7 @@ const VideoPlayer = (props: { item: MediaItem; onClose: () => void }) => {
 
       {/* 播放区域 */}
       <div style={{ flex: "1", position: "relative", background: "#000" }}>
-        <Show when={loading()}>
-          <div
-            style={{
-              position: "absolute",
-              inset: "0",
-              display: "flex",
-              "align-items": "center",
-              "justify-content": "center",
-              "flex-direction": "column",
-              gap: "12px",
-              color: "#64748b",
-            }}
-          >
-            <div style={{ "font-size": "32px" }}>⏳</div>
-            <div>正在获取播放地址...</div>
-          </div>
-        </Show>
-        <Show when={error()}>
-          <div
-            style={{
-              position: "absolute",
-              inset: "0",
-              display: "flex",
-              "align-items": "center",
-              "justify-content": "center",
-              "flex-direction": "column",
-              gap: "12px",
-              color: "#f87171",
-            }}
-          >
-            <div style={{ "font-size": "32px" }}>⚠️</div>
-            <div>{error()}</div>
-          </div>
-        </Show>
-        <Show when={!loading() && !error() && rawUrl()}>
-          <div
-            ref={(el) => {
-              playerContainer = el
-              // rawUrl 已就绪，初始化播放器
-              initPlayer(rawUrl())
-            }}
-            style={{ width: "100%", height: "100%" }}
-          />
-        </Show>
+        <div ref={playerContainer} style={{ width: "100%", height: "100%" }} />
       </div>
     </div>
   )

@@ -2,6 +2,8 @@ import { JSX } from "solid-js"
 import { useColorMode } from "@hope-ui/solid"
 import { createMemo } from "solid-js"
 import { playerState } from "./music/MusicLibrary"
+import { useTitle } from "~/hooks"
+import { getSetting } from "~/store"
 
 interface MediaLayoutProps {
   children: JSX.Element
@@ -10,6 +12,9 @@ interface MediaLayoutProps {
 }
 
 export const MediaLayout = (props: MediaLayoutProps) => {
+  // 设置浏览器标签页 title，复用 OpenList 原有的 title 逻辑
+  useTitle(() => `${props.title} | ${getSetting("site_title")}`)
+
   const { colorMode } = useColorMode()
   const isDark = createMemo(() => colorMode() === "dark")
 

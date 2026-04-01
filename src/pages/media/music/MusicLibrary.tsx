@@ -17,7 +17,7 @@ import {
 } from "~/utils/media_api"
 import type { MediaItem, AlbumInfo } from "~/types"
 import { getMediaName, parseAuthors, formatDuration } from "~/types"
-import { base_path } from "~/utils"
+import { api } from "~/utils"
 
 type BrowseMode = "all" | "folder"
 type OrderBy = "name" | "date" | "size"
@@ -66,8 +66,8 @@ export const initAudio = () => {
 
 export const playTrack = (item: MediaItem) => {
   const audio = initAudio()
-  // 使用文件路径构建播放URL
-  const url = `${base_path}/d${item.file_path}`
+  // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
+  const url = `${api}/p${item.file_path}?force`
   audio.src = url
   audio.play()
   setPlayerState((s) => ({ ...s, playing: true }))

@@ -14,7 +14,7 @@ import { MediaBrowser } from "../MediaBrowser"
 import { getMediaItem } from "~/utils/media_api"
 import type { MediaItem } from "~/types"
 import { getMediaName, parseAuthors } from "~/types"
-import { base_path } from "~/utils"
+import { api } from "~/utils"
 
 // ==================== PDF阅读器 ====================
 const PDFReader = (props: { url: string; title: string }) => {
@@ -550,7 +550,9 @@ const EPUBReader = (props: { url: string; title: string }) => {
 
 // ==================== 书籍阅读器（外层容器） ====================
 const BookReader = (props: { item: MediaItem; onClose: () => void }) => {
-  const fileUrl = () => `${base_path}/d${props.item.file_path}`
+  // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
+  const fileUrl = () => `${api}/p${props.item.file_path}?force`
+  const downloadUrl = () => `${api}/d${props.item.file_path}`
   const ext = () => props.item.file_name?.split(".").pop()?.toLowerCase() ?? ""
   const isPDF = () => ext() === "pdf"
   const isEpub = () => ext() === "epub"
@@ -627,8 +629,8 @@ const BookReader = (props: { item: MediaItem; onClose: () => void }) => {
               暂不支持在线阅读此格式（{ext().toUpperCase()}）
             </div>
             <a
-              href={fileUrl()}
-              download
+              href={downloadUrl()}
+              download={props.item.file_name}
               style={{
                 background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
                 border: "none",

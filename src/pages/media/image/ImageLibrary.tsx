@@ -3,7 +3,7 @@ import { MediaLayout } from "../MediaLayout"
 import { MediaBrowser } from "../MediaBrowser"
 import type { MediaItem } from "~/types"
 import { getMediaName } from "~/types"
-import { base_path } from "~/utils"
+import { api } from "~/utils"
 
 // ==================== 图片预览器 ====================
 const ImageViewer = (props: {
@@ -16,7 +16,8 @@ const ImageViewer = (props: {
   const [scale, setScale] = createSignal(1)
 
   const current = () => props.items[currentIndex()]
-  const imageUrl = () => `${base_path}/d${current().file_path}`
+  // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
+  const imageUrl = () => `${api}/p${current().file_path}?force`
 
   const prev = () => {
     setCurrentIndex((i) => (i - 1 + props.items.length) % props.items.length)
@@ -238,7 +239,7 @@ const ImageViewer = (props: {
             const realIndex = Math.max(0, currentIndex() - 5) + i()
             return (
               <img
-                src={`${base_path}/d${item.file_path}`}
+                src={`${api}/p${item.file_path}?force`}
                 onClick={() => {
                   setCurrentIndex(realIndex)
                   setScale(1)
@@ -283,7 +284,8 @@ const viewerBtnStyle = {
 
 // ==================== 图片卡片 ====================
 const ImageCard = (props: { item: MediaItem }) => {
-  const imageUrl = () => `${base_path}/d${props.item.file_path}`
+  // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
+  const imageUrl = () => `${api}/p${props.item.file_path}?force`
   return (
     <div
       style={{
@@ -351,7 +353,7 @@ const ImageLibrary = () => {
         renderListRow={(item) => (
           <>
             <img
-              src={`${base_path}/d${item.file_path}`}
+              src={`${api}/p${item.file_path}?force`}
               style={{
                 width: "48px",
                 height: "48px",
