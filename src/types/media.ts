@@ -2,6 +2,13 @@
 
 export type MediaType = "video" | "music" | "image" | "book"
 
+// 选集信息（路径合并模式下文件夹内的每个媒体文件）
+export interface EpisodeInfo {
+  file_name: string // 原始文件名（含扩展名）
+  index: number // 序号，默认0，文件名开头有数字则取该数字
+  title: string // 选集标题（去掉序号后的文件名，不含扩展名）
+}
+
 export interface MediaItem {
   id: number
   created_at: string
@@ -39,7 +46,18 @@ export interface MediaItem {
   // 目录
   is_folder: boolean
   folder_path: string
+  episodes: string // 选集信息 JSON 字符串，格式：[{file_name,index,title},...]
   scraped_at: string | null
+}
+
+// 解析 episodes JSON 字符串
+export function parseEpisodes(episodes: string): EpisodeInfo[] {
+  if (!episodes) return []
+  try {
+    return JSON.parse(episodes)
+  } catch {
+    return []
+  }
 }
 
 export interface AlbumInfo {

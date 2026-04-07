@@ -12,8 +12,8 @@ import { useColorMode } from "@hope-ui/solid"
 import { MediaLayout } from "../MediaLayout"
 import { MediaBrowser } from "../MediaBrowser"
 import { getMediaItem } from "~/utils/media_api"
-import type { MediaItem } from "~/types"
-import { getMediaName, parseAuthors } from "~/types"
+import type { MediaItem, EpisodeInfo } from "~/types"
+import { getMediaName, parseAuthors, parseEpisodes } from "~/types"
 import { api } from "~/utils"
 
 // ==================== PDF阅读器 ====================
@@ -549,11 +549,23 @@ const EPUBReader = (props: { url: string; title: string }) => {
 }
 
 // ==================== 书籍阅读器（外层容器） ====================
-const BookReader = (props: { item: MediaItem; onClose: () => void }) => {
-  // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
-  const fileUrl = () => `${api}/p${props.item.file_path}?force`
-  const downloadUrl = () => `${api}/d${props.item.file_path}`
-  const ext = () => props.item.file_name?.split(".").pop()?.toLowerCase() ?? ""
+const BookReader = (props: {
+  item: MediaItem
+  // 可选：指定播放的文件路径和标题（用于选集阅读）
+  filePath?: string
+  title?: string
+  onClose: () => void
+}) => {
+  // 优先使用传入的 filePath，否则使用 item.file_path
+  const fileUrl = () =>
+    `${api}/p${props.filePath ?? props.item.file_path}?force`
+  const downloadUrl = () => `${api}/d${props.filePath ?? props.item.file_path}`
+  const readerTitle = () => props.title ?? getMediaName(props.item)
+  const fileNameForExt = () => {
+    const path = props.filePath ?? props.item.file_name ?? ""
+    return path.split("/").pop() ?? path
+  }
+  const ext = () => fileNameForExt().split(".").pop()?.toLowerCase() ?? ""
   const isPDF = () => ext() === "pdf"
   const isEpub = () => ext() === "epub"
 
@@ -592,7 +604,7 @@ const BookReader = (props: { item: MediaItem; onClose: () => void }) => {
             "white-space": "nowrap",
           }}
         >
-          {getMediaName(props.item)}
+          {readerTitle()}
         </span>
         <button
           onClick={props.onClose}
@@ -630,7 +642,7 @@ const BookReader = (props: { item: MediaItem; onClose: () => void }) => {
             </div>
             <a
               href={downloadUrl()}
-              download={props.item.file_name}
+              download={fileNameForExt()}
               style={{
                 background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
                 border: "none",
@@ -829,6 +841,10 @@ const BookDetail = (props: { id: string; onBack: () => void }) => {
     },
   )
   const [showReader, setShowReader] = createSignal(false)
+  // 当前阅读的选集（null 表示阅读主文件）
+  const [currentEpisode, setCurrentEpisode] = createSignal<EpisodeInfo | null>(
+    null,
+  )
 
   return (
     <Show
@@ -848,7 +864,22 @@ const BookDetail = (props: { id: string; onBack: () => void }) => {
       {(data) => (
         <>
           <Show when={showReader()}>
-            <BookReader item={data()} onClose={() => setShowReader(false)} />
+            <BookReader
+              item={data()}
+              filePath={
+                currentEpisode()
+                  ? `${data().folder_path}/${currentEpisode()!.file_name}`
+                  : undefined
+              }
+              title={
+                currentEpisode()
+                  ? currentEpisode()!.index > 0
+                    ? `第${currentEpisode()!.index}册 ${currentEpisode()!.title}`
+                    : currentEpisode()!.title
+                  : undefined
+              }
+              onClose={() => setShowReader(false)}
+            />
           </Show>
 
           <button
@@ -969,23 +1000,117 @@ const BookDetail = (props: { id: string; onBack: () => void }) => {
                 </div>
               </Show>
 
-              <button
-                onClick={() => setShowReader(true)}
-                style={{
-                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                  border: "none",
-                  "border-radius": "10px",
-                  color: "white",
-                  padding: "10px 24px",
-                  "font-size": "14px",
-                  "font-weight": "600",
-                  cursor: "pointer",
-                  "margin-bottom": "20px",
-                }}
-              >
-                📖 阅读
-              </button>
+              {/* 无选集：直接显示阅读按钮 */}
+              <Show when={parseEpisodes(data().episodes).length === 0}>
+                <button
+                  onClick={() => {
+                    setCurrentEpisode(null)
+                    setShowReader(true)
+                  }}
+                  style={{
+                    background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                    border: "none",
+                    "border-radius": "10px",
+                    color: "white",
+                    padding: "10px 24px",
+                    "font-size": "14px",
+                    "font-weight": "600",
+                    cursor: "pointer",
+                    "margin-bottom": "20px",
+                  }}
+                >
+                  📖 阅读
+                </button>
+              </Show>
 
+              {/* 选集列表（路径合并模式下有选集时显示） */}
+              <Show when={parseEpisodes(data().episodes).length > 0}>
+                {(_) => {
+                  const episodes = parseEpisodes(data().episodes)
+                  return (
+                    <div style={{ "margin-bottom": "20px" }}>
+                      <h3
+                        style={{
+                          color: plotTitleColor(),
+                          "font-size": "12px",
+                          "font-weight": "600",
+                          "text-transform": "uppercase",
+                          "letter-spacing": "0.08em",
+                          "margin-bottom": "10px",
+                        }}
+                      >
+                        选集（共 {episodes.length} 册）
+                      </h3>
+                      <div
+                        style={{
+                          display: "grid",
+                          "grid-template-columns":
+                            "repeat(auto-fill, minmax(110px, 1fr))",
+                          gap: "6px",
+                          "max-height": "220px",
+                          "overflow-y": "auto",
+                          "padding-right": "4px",
+                        }}
+                      >
+                        <For each={episodes}>
+                          {(ep) => {
+                            const isActive = () =>
+                              currentEpisode()?.file_name === ep.file_name
+                            const label =
+                              ep.index > 0
+                                ? `第${ep.index}册${ep.title ? " " + ep.title : ""}`
+                                : ep.title || ep.file_name
+                            return (
+                              <button
+                                onClick={() => {
+                                  setCurrentEpisode(ep)
+                                  setShowReader(true)
+                                }}
+                                title={ep.file_name}
+                                style={{
+                                  background: isActive()
+                                    ? "linear-gradient(135deg, #6366f1, #8b5cf6)"
+                                    : isDark()
+                                      ? "rgba(255,255,255,0.06)"
+                                      : "rgba(0,0,0,0.05)",
+                                  border: isActive()
+                                    ? "none"
+                                    : `1px solid ${
+                                        isDark()
+                                          ? "rgba(255,255,255,0.1)"
+                                          : "rgba(0,0,0,0.1)"
+                                      }`,
+                                  "border-radius": "7px",
+                                  color: isActive()
+                                    ? "white"
+                                    : isDark()
+                                      ? "#94a3b8"
+                                      : "#475569",
+                                  padding: "7px 9px",
+                                  "font-size": "12px",
+                                  cursor: "pointer",
+                                  "text-align": "left",
+                                  overflow: "hidden",
+                                  "text-overflow": "ellipsis",
+                                  "white-space": "nowrap",
+                                  transition: "all 0.15s",
+                                  "box-shadow": isActive()
+                                    ? "0 2px 8px rgba(99,102,241,0.4)"
+                                    : "none",
+                                }}
+                              >
+                                📖 {label}
+                              </button>
+                            )
+                          }}
+                        </For>
+                      </div>
+                    </div>
+                  )
+                }}
+              </Show>
+
+              {/* 内容简介 */}
               <Show when={data().plot || data().description}>
                 <div>
                   <h3

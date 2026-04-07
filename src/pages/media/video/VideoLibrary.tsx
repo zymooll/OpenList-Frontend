@@ -11,8 +11,8 @@ import { useColorMode } from "@hope-ui/solid"
 import { MediaLayout } from "../MediaLayout"
 import { MediaBrowser } from "../MediaBrowser"
 import { getMediaItem } from "~/utils/media_api"
-import type { MediaItem } from "~/types"
-import { getMediaName, parseAuthors } from "~/types"
+import type { MediaItem, EpisodeInfo } from "~/types"
+import { getMediaName, parseAuthors, parseEpisodes } from "~/types"
 import { api, base_path, ext } from "~/utils"
 import Artplayer from "artplayer"
 import artplayerProxyMediabunny from "~/components/artplayer-proxy-mediabunny"
@@ -152,14 +152,22 @@ const VideoCard = (props: { item: MediaItem }) => {
 }
 
 // ==================== 内嵌视频播放器 ====================
-const VideoPlayer = (props: { item: MediaItem; onClose: () => void }) => {
+const VideoPlayer = (props: {
+  item: MediaItem
+  // 可选：指定播放的文件路径和标题（用于选集播放）
+  filePath?: string
+  title?: string
+  onClose: () => void
+}) => {
   let playerContainer: HTMLDivElement | undefined
   let player: Artplayer | undefined
   let hlsPlayer: Hls | undefined
   let flvPlayer: mpegts.Player | undefined
 
-  // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
-  const videoUrl = () => `${api}/p${props.item.file_path}?force`
+  // 优先使用传入的 filePath，否则使用 item.file_path
+  const videoUrl = () =>
+    `${api}/p${props.filePath ?? props.item.file_path}?force`
+  const videoTitle = () => props.title ?? getMediaName(props.item)
 
   onMount(() => {
     if (!playerContainer) return
@@ -167,7 +175,7 @@ const VideoPlayer = (props: { item: MediaItem; onClose: () => void }) => {
     player = new Artplayer({
       container: playerContainer,
       url: videoUrl(),
-      title: getMediaName(props.item),
+      title: videoTitle(),
       volume: 1.0,
       autoplay: false,
       autoSize: false,
@@ -277,7 +285,7 @@ const VideoPlayer = (props: { item: MediaItem; onClose: () => void }) => {
             "font-weight": "500",
           }}
         >
-          {getMediaName(props.item)}
+          {videoTitle()}
         </span>
       </div>
 
@@ -303,6 +311,10 @@ const VideoDetail = (props: { id: string; onBack: () => void }) => {
   )
 
   const [showPlayer, setShowPlayer] = createSignal(false)
+  // 当前播放的选集（null 表示播放主文件）
+  const [currentEpisode, setCurrentEpisode] = createSignal<EpisodeInfo | null>(
+    null,
+  )
 
   const backBtnBg = createMemo(() =>
     isDark() ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)",
@@ -529,33 +541,135 @@ const VideoDetail = (props: { id: string; onBack: () => void }) => {
                   </div>
                 </Show>
 
-                {/* 播放按钮 */}
+                {/* 播放器（全屏覆盖层） */}
                 <Show when={showPlayer()}>
                   <VideoPlayer
                     item={data()}
+                    filePath={
+                      currentEpisode()
+                        ? `${data().folder_path}/${currentEpisode()!.file_name}`
+                        : undefined
+                    }
+                    title={
+                      currentEpisode()
+                        ? currentEpisode()!.index > 0
+                          ? `第${currentEpisode()!.index}集 ${currentEpisode()!.title}`
+                          : currentEpisode()!.title
+                        : undefined
+                    }
                     onClose={() => setShowPlayer(false)}
                   />
                 </Show>
-                <button
-                  onClick={() => setShowPlayer(true)}
-                  style={{
-                    background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                    border: "none",
-                    "border-radius": "10px",
-                    color: "white",
-                    padding: "12px 28px",
-                    "font-size": "15px",
-                    "font-weight": "600",
-                    cursor: "pointer",
-                    display: "flex",
-                    "align-items": "center",
-                    gap: "8px",
-                    "box-shadow": "0 4px 16px rgba(99,102,241,0.4)",
-                    "margin-bottom": "24px",
+
+                {/* 无选集：直接显示播放按钮 */}
+                <Show when={parseEpisodes(data().episodes).length === 0}>
+                  <button
+                    onClick={() => {
+                      setCurrentEpisode(null)
+                      setShowPlayer(true)
+                    }}
+                    style={{
+                      background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                      border: "none",
+                      "border-radius": "10px",
+                      color: "white",
+                      padding: "12px 28px",
+                      "font-size": "15px",
+                      "font-weight": "600",
+                      cursor: "pointer",
+                      display: "flex",
+                      "align-items": "center",
+                      gap: "8px",
+                      "box-shadow": "0 4px 16px rgba(99,102,241,0.4)",
+                      "margin-bottom": "24px",
+                    }}
+                  >
+                    ▶ 立即播放
+                  </button>
+                </Show>
+
+                {/* 选集列表（路径合并模式下有选集时显示） */}
+                <Show when={parseEpisodes(data().episodes).length > 0}>
+                  {(_) => {
+                    const episodes = parseEpisodes(data().episodes)
+                    return (
+                      <div style={{ "margin-bottom": "24px" }}>
+                        <h3
+                          style={{
+                            color: plotTitleColor(),
+                            "font-size": "13px",
+                            "font-weight": "600",
+                            "text-transform": "uppercase",
+                            "letter-spacing": "0.08em",
+                            "margin-bottom": "12px",
+                          }}
+                        >
+                          选集（共 {episodes.length} 集）
+                        </h3>
+                        <div
+                          style={{
+                            display: "grid",
+                            "grid-template-columns":
+                              "repeat(auto-fill, minmax(120px, 1fr))",
+                            gap: "8px",
+                            "max-height": "260px",
+                            "overflow-y": "auto",
+                            "padding-right": "4px",
+                          }}
+                        >
+                          <For each={episodes}>
+                            {(ep) => {
+                              const isActive = () =>
+                                currentEpisode()?.file_name === ep.file_name
+                              const label =
+                                ep.index > 0
+                                  ? `第${ep.index}集${ep.title ? " " + ep.title : ""}`
+                                  : ep.title || ep.file_name
+                              return (
+                                <button
+                                  onClick={() => {
+                                    setCurrentEpisode(ep)
+                                    setShowPlayer(true)
+                                  }}
+                                  title={ep.file_name}
+                                  style={{
+                                    background: isActive()
+                                      ? "linear-gradient(135deg, #6366f1, #8b5cf6)"
+                                      : isDark()
+                                        ? "rgba(255,255,255,0.06)"
+                                        : "rgba(0,0,0,0.05)",
+                                    border: isActive()
+                                      ? "none"
+                                      : `1px solid ${isDark() ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
+                                    "border-radius": "8px",
+                                    color: isActive()
+                                      ? "white"
+                                      : isDark()
+                                        ? "#94a3b8"
+                                        : "#475569",
+                                    padding: "8px 10px",
+                                    "font-size": "12px",
+                                    cursor: "pointer",
+                                    "text-align": "left",
+                                    overflow: "hidden",
+                                    "text-overflow": "ellipsis",
+                                    "white-space": "nowrap",
+                                    transition: "all 0.15s",
+                                    "box-shadow": isActive()
+                                      ? "0 2px 8px rgba(99,102,241,0.4)"
+                                      : "none",
+                                  }}
+                                >
+                                  ▶ {label}
+                                </button>
+                              )
+                            }}
+                          </For>
+                        </div>
+                      </div>
+                    )
                   }}
-                >
-                  ▶ 立即播放
-                </button>
+                </Show>
 
                 {/* 剧情简介 */}
                 <Show when={data().plot || data().description}>
