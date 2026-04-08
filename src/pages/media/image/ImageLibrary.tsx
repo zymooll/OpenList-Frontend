@@ -17,7 +17,12 @@ const ImageViewer = (props: {
 
   const current = () => props.items[currentIndex()]
   // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
-  const imageUrl = () => `${api}/p${current().file_path}?force`
+  // 路径 = folder_path + "/" + file_name
+  const imageUrl = () => {
+    const item = current()
+    const folder = item.folder_path?.replace(/\/$/, "") ?? ""
+    return `${api}/p${folder}/${item.file_name}?force`
+  }
 
   const prev = () => {
     setCurrentIndex((i) => (i - 1 + props.items.length) % props.items.length)
@@ -239,7 +244,7 @@ const ImageViewer = (props: {
             const realIndex = Math.max(0, currentIndex() - 5) + i()
             return (
               <img
-                src={`${api}/p${item.file_path}?force`}
+                src={`${api}/p${item.folder_path?.replace(/\/$/, "")}/${item.file_name}?force`}
                 onClick={() => {
                   setCurrentIndex(realIndex)
                   setScale(1)
@@ -285,7 +290,11 @@ const viewerBtnStyle = {
 // ==================== 图片卡片 ====================
 const ImageCard = (props: { item: MediaItem }) => {
   // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
-  const imageUrl = () => `${api}/p${props.item.file_path}?force`
+  // 路径 = folder_path + "/" + file_name
+  const imageUrl = () => {
+    const folder = props.item.folder_path?.replace(/\/$/, "") ?? ""
+    return `${api}/p${folder}/${props.item.file_name}?force`
+  }
   return (
     <div
       style={{
@@ -353,7 +362,7 @@ const ImageLibrary = () => {
         renderListRow={(item) => (
           <>
             <img
-              src={`${api}/p${item.file_path}?force`}
+              src={`${api}/p${item.folder_path?.replace(/\/$/, "")}/${item.file_name}?force`}
               style={{
                 width: "48px",
                 height: "48px",
@@ -367,7 +376,7 @@ const ImageLibrary = () => {
                 {getMediaName(item)}
               </div>
               <div style={{ color: "#475569", "font-size": "12px" }}>
-                {item.folder_path?.split("/").pop()}
+                {item.file_name}
               </div>
             </div>
           </>

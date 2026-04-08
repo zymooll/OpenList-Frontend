@@ -33,6 +33,7 @@ export const [playerState, setPlayerState] = createSignal<{
   volume: number
   loopMode: "none" | "all" | "one" | "shuffle"
   showLyrics: boolean
+  externalLyrics: string // 外部同名 .lrc 文件内容，优先于内嵌歌词
 }>({
   playlist: [],
   currentIndex: 0,
@@ -42,6 +43,7 @@ export const [playerState, setPlayerState] = createSignal<{
   volume: 0.8,
   loopMode: "all",
   showLyrics: false,
+  externalLyrics: "",
 })
 
 let audioEl: HTMLAudioElement | null = null
@@ -66,11 +68,26 @@ export const initAudio = () => {
 
 export const playTrack = (item: MediaItem) => {
   const audio = initAudio()
-  // 使用 /p/ 代理路径 + ?force 参数，避免 302 重定向到外部存储时的 CORS 跨域问题
-  const url = `${api}/p${item.file_path}?force`
+  // 每首歌都是独立文件记录，播放路径 = folder_path + "/" + file_name
+  const folder = item.folder_path?.replace(/\/$/, "") ?? ""
+  const url = `${api}/p${folder}/${item.file_name}?force`
   audio.src = url
   audio.play()
-  setPlayerState((s) => ({ ...s, playing: true }))
+  // 先清空外部歌词，再异步尝试加载同名 .lrc 文件
+  setPlayerState((s) => ({ ...s, playing: true, externalLyrics: "" }))
+  const baseName = item.file_name?.replace(/\.[^.]+$/, "") ?? ""
+  const lrcUrl = `${api}/p${folder}/${baseName}.lrc?force`
+  fetch(lrcUrl)
+    .then((res) => {
+      if (res.ok) return res.text()
+      return ""
+    })
+    .then((text) => {
+      setPlayerState((s) => ({ ...s, externalLyrics: text ?? "" }))
+    })
+    .catch(() => {
+      setPlayerState((s) => ({ ...s, externalLyrics: "" }))
+    })
 }
 
 export const playPlaylist = (items: MediaItem[], startIndex = 0) => {
@@ -146,7 +163,12 @@ const LyricsPage = () => {
     const s = playerState()
     return s.playlist[s.currentIndex]
   }
-  const lyrics = () => parseLRC(currentItem()?.lyrics ?? "")
+  // 优先使用外部同名 .lrc 文件，其次使用内嵌歌词
+  const lyrics = () => {
+    const ext = playerState().externalLyrics
+    if (ext) return parseLRC(ext)
+    return parseLRC(currentItem()?.lyrics ?? "")
+  }
 
   const currentLyricIndex = () => {
     const lines = lyrics()

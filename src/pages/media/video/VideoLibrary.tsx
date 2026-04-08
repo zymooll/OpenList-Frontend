@@ -164,9 +164,12 @@ const VideoPlayer = (props: {
   let hlsPlayer: Hls | undefined
   let flvPlayer: mpegts.Player | undefined
 
-  // 优先使用传入的 filePath，否则使用 item.file_path
-  const videoUrl = () =>
-    `${api}/p${props.filePath ?? props.item.file_path}?force`
+  // 优先使用传入的 filePath，否则拼接 folder_path + "/" + file_name
+  const videoUrl = () => {
+    if (props.filePath) return `${api}/p${props.filePath}?force`
+    const folder = props.item.folder_path?.replace(/\/$/, "") ?? ""
+    return `${api}/p${folder}/${props.item.file_name}?force`
+  }
   const videoTitle = () => props.title ?? getMediaName(props.item)
 
   onMount(() => {
@@ -547,7 +550,7 @@ const VideoDetail = (props: { id: string; onBack: () => void }) => {
                     item={data()}
                     filePath={
                       currentEpisode()
-                        ? `${data().file_path}/${currentEpisode()!.file_name}`
+                        ? `${data().folder_path?.replace(/\/$/, "")}/${data().file_name}/${currentEpisode()!.file_name}`
                         : undefined
                     }
                     title={

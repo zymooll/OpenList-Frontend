@@ -3,6 +3,7 @@ import type {
   MediaItem,
   AlbumInfo,
   MediaConfig,
+  MediaScanPath,
   MediaScanProgress,
   MediaListQuery,
   MediaType,
@@ -26,6 +27,7 @@ export const getAlbumList = (params: {
   page?: number
   page_size?: number
   keyword?: string
+  scan_path_id?: number
 }) =>
   r.get("/fs/media/albums", { params }) as Promise<
     Resp<{ content: AlbumInfo[]; total: number }>
@@ -43,6 +45,12 @@ export const getMediaFolders = (mediaType: MediaType) =>
     Resp<string[]>
   >
 
+/** 获取扫描路径列表（公开，用于前端筛选） */
+export const getMediaScanPaths = (mediaType?: MediaType) =>
+  r.get("/fs/media/scan_paths", {
+    params: mediaType ? { media_type: mediaType } : {},
+  }) as Promise<Resp<MediaScanPath[]>>
+
 // ==================== 管理API ====================
 
 /** 获取所有媒体库配置 */
@@ -53,9 +61,37 @@ export const adminGetMediaConfigs = () =>
 export const adminSaveMediaConfig = (cfg: Partial<MediaConfig>) =>
   r.post("/admin/media/config/save", cfg) as Promise<Resp<null>>
 
+/** 获取扫描路径列表（管理） */
+export const adminListMediaScanPaths = (mediaType?: MediaType) =>
+  r.get("/admin/media/scan_paths", {
+    params: mediaType ? { media_type: mediaType } : {},
+  }) as Promise<Resp<MediaScanPath[]>>
+
+/** 创建扫描路径 */
+export const adminCreateMediaScanPath = (sp: Partial<MediaScanPath>) =>
+  r.post("/admin/media/scan_paths/create", sp) as Promise<Resp<MediaScanPath>>
+
+/** 更新扫描路径 */
+export const adminUpdateMediaScanPath = (
+  sp: Partial<MediaScanPath> & { id: number },
+) => r.post("/admin/media/scan_paths/update", sp) as Promise<Resp<null>>
+
+/** 删除扫描路径 */
+export const adminDeleteMediaScanPath = (id: number) =>
+  r.post("/admin/media/scan_paths/delete", null, {
+    params: { id },
+  }) as Promise<Resp<null>>
+
+/** 清空扫描路径数据 */
+export const adminClearMediaScanPathDB = (id: number) =>
+  r.post("/admin/media/scan_paths/clear", null, {
+    params: { id },
+  }) as Promise<Resp<null>>
+
 /** 后台获取媒体条目列表 */
 export const adminGetMediaItems = (params: {
   media_type?: MediaType
+  scan_path_id?: number
   page?: number
   page_size?: number
   keyword?: string
@@ -77,10 +113,14 @@ export const adminDeleteMediaItem = (id: number) =>
     params: { id },
   }) as Promise<Resp<null>>
 
-/** 开始扫描 */
-export const adminStartMediaScan = (mediaType: MediaType) =>
+/** 开始扫描（可指定单个扫描路径） */
+export const adminStartMediaScan = (
+  mediaType: MediaType,
+  scanPathId?: number,
+) =>
   r.post("/admin/media/scan/start", {
     media_type: mediaType,
+    scan_path_id: scanPathId ?? 0,
   }) as Promise<Resp<null>>
 
 /** 获取扫描进度 */
@@ -96,7 +136,7 @@ export const adminStartMediaScrape = (mediaType: MediaType, itemId?: number) =>
     item_id: itemId ?? 0,
   }) as Promise<Resp<null>>
 
-/** 清空媒体数据库 */
+/** 清空媒体数据库（整个类型） */
 export const adminClearMediaDB = (mediaType: MediaType) =>
   r.post("/admin/media/clear", null, {
     params: { media_type: mediaType },

@@ -9,8 +9,12 @@ import {
   Match,
 } from "solid-js"
 import { useColorMode } from "@hope-ui/solid"
-import { getMediaList, getMediaFolders } from "~/utils/media_api"
-import type { MediaItem, MediaType } from "~/types"
+import {
+  getMediaList,
+  getMediaFolders,
+  getMediaScanPaths,
+} from "~/utils/media_api"
+import type { MediaItem, MediaType, MediaScanPath } from "~/types"
 import { getMediaName } from "~/types"
 
 interface MediaBrowserProps {
@@ -100,8 +104,43 @@ export const MediaBrowser = (props: MediaBrowserProps) => {
   const [page, setPage] = createSignal(1)
   const [keyword, setKeyword] = createSignal("")
   const [selectedFolder, setSelectedFolder] = createSignal("")
+  const [selectedScanPathId, setSelectedScanPathId] = createSignal<number>(0)
+  const [selectedTypeTag, setSelectedTypeTag] = createSignal("")
+  const [selectedContentTag, setSelectedContentTag] = createSignal("")
 
   const pageSize = 40
+
+  // 加载扫描路径列表（用于筛选）
+  const [scanPathsData] = createResource(
+    () => props.mediaType,
+    async (mt) => {
+      const resp = await getMediaScanPaths(mt)
+      if (resp.code === 200) return resp.data as MediaScanPath[]
+      return [] as MediaScanPath[]
+    },
+  )
+
+  // 计算所有可用的类型标签和内容标签
+  const allTypeTags = createMemo(() => {
+    const paths = scanPathsData() ?? []
+    const tags = new Set<string>()
+    paths.forEach((p) => {
+      if (p.type_tag) tags.add(p.type_tag)
+    })
+    return Array.from(tags)
+  })
+
+  const allContentTags = createMemo(() => {
+    const paths = scanPathsData() ?? []
+    const tags = new Set<string>()
+    paths.forEach((p) => {
+      if (p.content_tags)
+        p.content_tags.split(",").forEach((t) => {
+          if (t.trim()) tags.add(t.trim())
+        })
+    })
+    return Array.from(tags)
+  })
 
   // 加载媒体列表
   const [mediaData] = createResource(
@@ -113,6 +152,9 @@ export const MediaBrowser = (props: MediaBrowserProps) => {
       order_dir: orderDir(),
       folder_path: browseMode() === "folder" ? selectedFolder() : undefined,
       keyword: keyword() || undefined,
+      scan_path_id: selectedScanPathId() || undefined,
+      type_tag: selectedTypeTag() || undefined,
+      content_tag: selectedContentTag() || undefined,
     }),
     async (params) => {
       const resp = await getMediaList(params)
@@ -221,6 +263,85 @@ export const MediaBrowser = (props: MediaBrowserProps) => {
             </button>
           ))}
         </div>
+
+        <div
+          style={{ width: "1px", height: "20px", background: dividerColor() }}
+        />
+
+        {/* 扫描路径筛选 */}
+        <Show when={(scanPathsData() ?? []).length > 0}>
+          <select
+            value={selectedScanPathId()}
+            onChange={(e) => {
+              setSelectedScanPathId(Number(e.currentTarget.value))
+              setPage(1)
+            }}
+            style={{
+              background: searchBg(),
+              border: `1px solid ${searchBorder()}`,
+              "border-radius": "6px",
+              color: searchColor(),
+              padding: "5px 8px",
+              "font-size": "12px",
+              outline: "none",
+            }}
+          >
+            <option value="0">全部路径</option>
+            <For each={scanPathsData() ?? []}>
+              {(sp) => <option value={sp.id}>{sp.name || sp.path}</option>}
+            </For>
+          </select>
+        </Show>
+
+        {/* 类型标签筛选 */}
+        <Show when={allTypeTags().length > 0}>
+          <select
+            value={selectedTypeTag()}
+            onChange={(e) => {
+              setSelectedTypeTag(e.currentTarget.value)
+              setPage(1)
+            }}
+            style={{
+              background: searchBg(),
+              border: `1px solid ${searchBorder()}`,
+              "border-radius": "6px",
+              color: searchColor(),
+              padding: "5px 8px",
+              "font-size": "12px",
+              outline: "none",
+            }}
+          >
+            <option value="">全部类型</option>
+            <For each={allTypeTags()}>
+              {(tag) => <option value={tag}>{tag}</option>}
+            </For>
+          </select>
+        </Show>
+
+        {/* 内容标签筛选 */}
+        <Show when={allContentTags().length > 0}>
+          <select
+            value={selectedContentTag()}
+            onChange={(e) => {
+              setSelectedContentTag(e.currentTarget.value)
+              setPage(1)
+            }}
+            style={{
+              background: searchBg(),
+              border: `1px solid ${searchBorder()}`,
+              "border-radius": "6px",
+              color: searchColor(),
+              padding: "5px 8px",
+              "font-size": "12px",
+              outline: "none",
+            }}
+          >
+            <option value="">全部标签</option>
+            <For each={allContentTags()}>
+              {(tag) => <option value={tag}>{tag}</option>}
+            </For>
+          </select>
+        </Show>
 
         <div
           style={{ width: "1px", height: "20px", background: dividerColor() }}

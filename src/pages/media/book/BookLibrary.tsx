@@ -556,10 +556,14 @@ const BookReader = (props: {
   title?: string
   onClose: () => void
 }) => {
-  // 优先使用传入的 filePath，否则使用 item.file_path
-  const fileUrl = () =>
-    `${api}/p${props.filePath ?? props.item.file_path}?force`
-  const downloadUrl = () => `${api}/d${props.filePath ?? props.item.file_path}`
+  // 优先使用传入的 filePath，否则拼接 folder_path + "/" + file_name
+  const resolvedPath = () => {
+    if (props.filePath) return props.filePath
+    const folder = props.item.folder_path?.replace(/\/$/, "") ?? ""
+    return `${folder}/${props.item.file_name}`
+  }
+  const fileUrl = () => `${api}/p${resolvedPath()}?force`
+  const downloadUrl = () => `${api}/d${resolvedPath()}`
   const readerTitle = () => props.title ?? getMediaName(props.item)
   const fileNameForExt = () => {
     const path = props.filePath ?? props.item.file_name ?? ""
@@ -868,7 +872,7 @@ const BookDetail = (props: { id: string; onBack: () => void }) => {
               item={data()}
               filePath={
                 currentEpisode()
-                  ? `${data().file_path}/${currentEpisode()!.file_name}`
+                  ? `${data().folder_path?.replace(/\/$/, "")}/${data().file_name}/${currentEpisode()!.file_name}`
                   : undefined
               }
               title={
