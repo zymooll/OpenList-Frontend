@@ -157,6 +157,9 @@ export const usePath = () => {
     if (size !== undefined && pagination.type === "all") {
       size = undefined
     }
+    if (!append && !onlyList) {
+      ObjStore.setObjs([])
+    }
     !onlyList &&
       ObjStore.setState(append ? State.FetchingMore : State.FetchingObjs)
     const resp = await getObjs({ path, index, size, force })
