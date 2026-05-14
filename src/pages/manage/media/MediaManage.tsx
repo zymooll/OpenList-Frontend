@@ -15,6 +15,8 @@ import {
   adminStartMediaScan,
   adminStartMediaScrape,
   adminClearMediaDB,
+  adminClearMediaScrape,
+  adminDeleteInvalidMedia,
   adminExportMediaDB,
   adminImportMediaDB,
   adminGetMediaScanProgress,
@@ -499,6 +501,48 @@ export const MediaManagePage = (props: MediaManagePageProps) => {
     })
   }
 
+  // 仅清空刮削数据（保留扫描记录）
+  const handleClearScrape = async () => {
+    showConfirm({
+      title: `清空 ${props.title} 刮削数据`,
+      message: `确定要清空 ${props.title} 的所有刮削结果吗？\n（扫描得到的文件记录会保留，仅清空封面、简介、评分、刮削时间等字段，便于重新刮削。）`,
+      confirmText: "清空刮削",
+      type: "warning",
+      onConfirm: async () => {
+        const resp = await adminClearMediaScrape(props.mediaType)
+        if (resp.code === 200) {
+          const affected = resp.data?.affected ?? 0
+          showToast(`已清空刮削数据，共影响 ${affected} 条`)
+          refetchItems()
+        } else {
+          showToast("清空刮削失败: " + resp.message, "error")
+        }
+      },
+    })
+  }
+
+  // 删除已失效条目（对应文件已不存在）
+  const handleDeleteInvalid = async () => {
+    showConfirm({
+      title: `删除 ${props.title} 失效条目`,
+      message: `将检测 ${props.title} 中所有条目对应的文件 / 文件夹是否仍存在，已失效的条目会被删除。\n此过程可能耗时较久（取决于条目数量），是否继续？`,
+      confirmText: "删除已失效",
+      type: "danger",
+      onConfirm: async () => {
+        showToast("正在检测失效条目...", "info")
+        const resp = await adminDeleteInvalidMedia(props.mediaType)
+        if (resp.code === 200) {
+          const checked = resp.data?.checked ?? 0
+          const deleted = resp.data?.deleted ?? 0
+          showToast(`检测 ${checked} 条，删除 ${deleted} 条已失效条目`)
+          refetchItems()
+        } else {
+          showToast("删除失败: " + resp.message, "error")
+        }
+      },
+    })
+  }
+
   // ============== 导入 / 导出 ==============
 
   // 触发浏览器下载 Blob
@@ -805,6 +849,12 @@ export const MediaManagePage = (props: MediaManagePageProps) => {
             </button>
             <button onClick={handleImportAll} style={btnStyle("#8b5cf6")}>
               ⬆️ 导入数据
+            </button>
+            <button onClick={handleDeleteInvalid} style={btnStyle("#f97316")}>
+              🧹 删除已失效
+            </button>
+            <button onClick={handleClearScrape} style={btnStyle("#eab308")}>
+              ♻️ 清空刮削
             </button>
             <button onClick={handleClearAll} style={btnStyle("#ef4444")}>
               🗑️ 清空全部

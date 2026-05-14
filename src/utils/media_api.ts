@@ -142,6 +142,22 @@ export const adminClearMediaDB = (mediaType: MediaType) =>
     params: { media_type: mediaType },
   }) as Promise<Resp<null>>
 
+/** 清空刮削数据（保留扫描记录，只清空刮削结果字段）
+ *  mediaType 为空表示清空所有类型
+ */
+export const adminClearMediaScrape = (mediaType?: MediaType) =>
+  r.post("/admin/media/clear_scrape", null, {
+    params: mediaType ? { media_type: mediaType } : {},
+  }) as Promise<Resp<{ affected: number }>>
+
+/** 删除已失效的媒体条目（对应文件已不存在）
+ *  mediaType 为空表示扫描所有类型
+ */
+export const adminDeleteInvalidMedia = (mediaType?: MediaType) =>
+  r.post("/admin/media/delete_invalid", null, {
+    params: mediaType ? { media_type: mediaType } : {},
+  }) as Promise<Resp<{ checked: number; deleted: number }>>
+
 /** 导出媒体数据
  *  - mediaType 为空 + scanPathId 为空 => 全部导出
  *  - 仅 mediaType => 导出指定类型
