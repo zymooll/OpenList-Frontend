@@ -911,7 +911,7 @@ export const MediaManagePage = (props: MediaManagePageProps) => {
             display: "flex",
             "justify-content": "space-between",
             "align-items": "center",
-            "flex-wrap": "wrap",
+            "flex-wrap": "nowrap",
             gap: "10px",
           }}
         >
@@ -920,6 +920,8 @@ export const MediaManagePage = (props: MediaManagePageProps) => {
               "font-size": "15px",
               "font-weight": "600",
               color: "#374151",
+              "white-space": "nowrap",
+              "flex-shrink": 0,
             }}
           >
             数据库管理（共 {total()} 条）
@@ -930,7 +932,8 @@ export const MediaManagePage = (props: MediaManagePageProps) => {
               display: "flex",
               gap: "10px",
               "align-items": "center",
-              "flex-wrap": "wrap",
+              "flex-wrap": "nowrap",
+              "flex-shrink": 0,
             }}
           >
             <select
