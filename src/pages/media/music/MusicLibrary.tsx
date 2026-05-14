@@ -631,6 +631,26 @@ export const MusicPlayer = () => {
     return s.playlist[s.currentIndex]
   }
 
+  // ===== 底栏滚动歌词：复用 parseLRC，外部 .lrc 优先于内嵌歌词 =====
+  // 仅在歌词文本变化时才重新解析（依赖 currentIndex / externalLyrics / 当前 item.lyrics）
+  const miniLyricLines = createMemo(() => {
+    const ext = playerState().externalLyrics
+    if (ext) return parseLRC(ext)
+    return parseLRC(currentItem()?.lyrics ?? "")
+  })
+  // 当前命中的歌词行索引（依赖 currentTime；找不到时返回 -1）
+  const currentMiniLyricIdx = () => {
+    const lines = miniLyricLines()
+    if (lines.length === 0) return -1
+    const t = playerState().currentTime
+    let idx = -1
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].time <= t) idx = i
+      else break
+    }
+    return idx
+  }
+
   const handleSeek = (e: MouseEvent) => {
     const bar = e.currentTarget as HTMLDivElement
     const rect = bar.getBoundingClientRect()
@@ -723,13 +743,15 @@ export const MusicPlayer = () => {
             }}
           >
             {/* 左：封面 + 歌曲信息（点击展开歌词） */}
+            {/* 取消 flex:1，改为有限宽度，把剩余空间让给中间的歌词条 */}
             <div
               style={{
                 display: "flex",
                 "align-items": "center",
                 gap: "12px",
-                flex: "1",
+                width: "260px",
                 "min-width": "0",
+                "flex-shrink": "0",
                 cursor: "pointer",
               }}
               onClick={() =>
@@ -789,6 +811,80 @@ export const MusicPlayer = () => {
                   {currentItem()?.album_artist || "未知艺术家"}
                 </div>
               </div>
+            </div>
+
+            {/* 中-左：滚动歌词条（专辑信息 与 播放控制 之间）
+                - flex:1 占据剩余空间；min-width:0 保证 ellipsis 生效
+                - 点击同样可展开全屏歌词页
+                - 双行：上方为当前行（高亮），下方为下一行预览
+                - 没有歌词时显示淡占位以保持布局稳定 */}
+            <div
+              onClick={() =>
+                setPlayerState((s) => ({ ...s, showLyrics: true }))
+              }
+              title="点击查看完整歌词"
+              style={{
+                flex: "1",
+                "min-width": "0",
+                display: "flex",
+                "flex-direction": "column",
+                "justify-content": "center",
+                gap: "2px",
+                cursor: "pointer",
+                padding: "0 14px",
+                "text-align": "center",
+                "user-select": "none",
+              }}
+            >
+              <Show
+                when={miniLyricLines().length > 0}
+                fallback={
+                  <div
+                    style={{
+                      color: "rgba(148,163,184,0.4)",
+                      "font-size": "13px",
+                      "white-space": "nowrap",
+                      overflow: "hidden",
+                      "text-overflow": "ellipsis",
+                    }}
+                  >
+                    🎵 暂无歌词
+                  </div>
+                }
+              >
+                <div
+                  style={{
+                    color: "#f1f5f9",
+                    "font-size": "14px",
+                    "font-weight": "500",
+                    "white-space": "nowrap",
+                    overflow: "hidden",
+                    "text-overflow": "ellipsis",
+                    "letter-spacing": "-0.01em",
+                    transition: "color 0.3s",
+                  }}
+                >
+                  {currentMiniLyricIdx() >= 0
+                    ? miniLyricLines()[currentMiniLyricIdx()].text || "♪"
+                    : miniLyricLines()[0]?.text || "♪"}
+                </div>
+                <div
+                  style={{
+                    color: "rgba(148,163,184,0.55)",
+                    "font-size": "12px",
+                    "white-space": "nowrap",
+                    overflow: "hidden",
+                    "text-overflow": "ellipsis",
+                  }}
+                >
+                  {(() => {
+                    const lines = miniLyricLines()
+                    const i = currentMiniLyricIdx()
+                    const next = i >= 0 ? lines[i + 1] : lines[1]
+                    return next?.text ?? ""
+                  })()}
+                </div>
+              </Show>
             </div>
 
             {/* 中：播放控制 */}
