@@ -14,7 +14,6 @@ import {
   BsBucket,
   BsHddNetwork,
   BsArrowLeftRight,
-  BsGlobe,
 } from "solid-icons/bs"
 import { FiLogIn } from "solid-icons/fi"
 import { SiMetabase } from "solid-icons/si"
@@ -187,12 +186,6 @@ export const side_menu_items: SideMenuItem[] = [
     icon: SiMetabase,
     to: "/@manage/metas",
     component: lazy(() => import("./metas/Metas")),
-  },
-  {
-    title: "manage.sidemenu.virtual_hosts",
-    icon: BsGlobe,
-    to: "/@manage/virtual_hosts",
-    component: lazy(() => import("./virtual_hosts/VirtualHosts")),
   },
   {
     title: "manage.sidemenu.indexes",

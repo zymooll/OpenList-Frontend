@@ -1,9 +1,0 @@
-{
-  "domain": "Domain",
-  "domain_help": "The domain name to bind (e.g. blog.example.com)",
-  "path": "Path",
-  "path_help": "The OpenList path to map this domain to",
-  "enabled": "Enabled",
-  "web_hosting": "Web Hosting",
-  "web_hosting_help": "If enabled, HTML files will be served directly instead of the file browser"
-}

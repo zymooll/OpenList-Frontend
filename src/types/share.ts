@@ -12,6 +12,8 @@ export interface Share {
   remark: string
   readme: string
   header: string
+  domain?: string
+  web_hosting?: boolean
 }
 
 export interface ShareUpdate extends Share {
