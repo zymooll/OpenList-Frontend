@@ -42,6 +42,7 @@ import { ArtPlayerIconsSubtitle } from "~/components/icons"
 import { useNavigate } from "@solidjs/router"
 import "./artplayer.css"
 import { registerAc3Decoder } from "@mediabunny/ac3"
+import { requestTranscodePlay } from "~/utils/media_api"
 // 仅在启用 MediaBunny 时注册 AC3 解码器
 if (isMediaBunnyEnabled()) {
   registerAc3Decoder()
@@ -350,17 +351,43 @@ const Preview = () => {
     },
   })
 
-  onMount(() => {
-    // 预下载视频文件的前几个区块（不阻塞，与 Artplayer 初始化同时进行）
-    if (objStore.raw_url) {
+  onMount(async () => {
+    // ---- 云端转码判断 ----
+    // 播放前先调用后端转码决策接口，如果需要转码则使用 HLS master_url 播放
+    let useTranscode = false
+    try {
+      const tcResp = await requestTranscodePlay(pathname())
+      if (
+        tcResp.code === 200 &&
+        tcResp.data?.transcode &&
+        tcResp.data.master_url
+      ) {
+        useTranscode = true
+        option.url = tcResp.data.master_url
+        option.type = "m3u8"
+        console.log(
+          `[transcode] 使用云端转码播放: job=${tcResp.data.job_id}, profile=${tcResp.data.profile}`,
+        )
+      }
+    } catch (e) {
+      // 转码接口失败（可能未开启），静默降级到直链播放
+      console.debug("[transcode] 转码接口不可用，使用直链播放", e)
+    }
+
+    // 预下载视频文件的前几个区块（仅直链模式，转码模式由 HLS.js 管理）
+    if (!useTranscode && objStore.raw_url) {
       void prefetchVideoChunks(objStore.raw_url, {
         byteRange: 8 * 1024 * 1024,
         timeoutMs: 3000,
       })
     }
     player = new Artplayer(option)
-    // “仅音频”模式：原生 <video> 解码视频，mediabunny 只提供音轨
-    if (getMediaBunnyMode() === "audio_only" && objStore.raw_url) {
+    // "仅音频"模式：原生 <video> 解码视频，mediabunny 只提供音轨（仅直链模式）
+    if (
+      !useTranscode &&
+      getMediaBunnyMode() === "audio_only" &&
+      objStore.raw_url
+    ) {
       attachMediabunnyAudio(player, objStore.raw_url)
     }
     let auto_fullscreen: boolean

@@ -100,6 +100,12 @@ export const side_menu_items: SideMenuItem[] = [
         component: () => <CommonSettings group={Group.TRAFFIC} />,
       },
       {
+        title: "manage.sidemenu.transcode",
+        icon: BsCameraFill,
+        to: "/@manage/settings/transcode",
+        component: () => <CommonSettings group={Group.TRANSCODE} />,
+      },
+      {
         title: "manage.sidemenu.other",
         icon: BsMedium,
         to: "/@manage/settings/other",

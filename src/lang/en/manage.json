@@ -33,7 +33,8 @@
     "media_music": "Music",
     "media_image": "Images",
     "media_book": "Books",
-    "media_settings": "Settings"
+    "media_settings": "Settings",
+    "transcode": "Transcode"
   },
   "title": "OpenList Management",
   "not_admin": "You are not an admin user, please login with an admin account.",

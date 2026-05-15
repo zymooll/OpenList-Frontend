@@ -1,16 +1,19 @@
 import { Box, Center } from "@hope-ui/solid"
 import { Show, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { useRouter, useLink, useFetch } from "~/hooks"
-import { getMainColor, getSettingBool, objStore, password } from "~/store"
+import {
+  getMainColor,
+  getSettingBool,
+  objStore,
+  password,
+  setShouldKeepState,
+} from "~/store"
 import { ObjType, PResp } from "~/types"
 import { ext, handleResp, notify, r, pathDir, pathJoin } from "~/utils"
 import Artplayer from "artplayer"
-import { type Option } from "artplayer/types/option"
-import { type Setting } from "artplayer/types/setting"
-import { type Events } from "artplayer/types/events"
-import artplayerProxyMediabunny from "~/components/artplayer-proxy-mediabunny"
-import { attachMediabunnyAudio } from "~/components/artplayer-proxy-mediabunny/AudioPatch"
-import { prefetchVideoChunks } from "~/components/artplayer-proxy-mediabunny/Prefetcher"
+import { type Option } from "artplayer"
+import { type Setting } from "artplayer"
+import { type Events } from "artplayer"
 import artplayerPluginDanmuku from "artplayer-plugin-danmuku"
 import { type Option as DanmukuOption } from "artplayer-plugin-danmuku"
 import artplayerPluginAss from "~/components/artplayer-plugin-ass"
@@ -21,31 +24,6 @@ import { ArtPlayerIconsSubtitle } from "~/components/icons"
 import { useNavigate } from "@solidjs/router"
 import { TiWarning } from "solid-icons/ti"
 import "./artplayer.css"
-import { registerAc3Decoder } from "@mediabunny/ac3"
-
-// MediaBunny 播放器模式：三档选择
-//   "disabled"   - 禁用（使用原生 <video>，默认）
-//   "audio_only" - 仅解码音频（避免问题视频轨道崩溃，canvas 仅显示 poster）
-//   "full"       - 全部解码（音频 + 视频）
-const MEDIABUNNY_KEY = "use_mediabunny_player"
-type MediaBunnyMode = "disabled" | "audio_only" | "full"
-function getMediaBunnyMode(): MediaBunnyMode {
-  const v = localStorage.getItem(MEDIABUNNY_KEY)
-  if (v === "audio_only") return "audio_only"
-  // 向下兼容旧版“true/false”布尔值
-  if (v === "true" || v === "full") return "full"
-  return "disabled"
-}
-function setMediaBunnyMode(mode: MediaBunnyMode) {
-  localStorage.setItem(MEDIABUNNY_KEY, mode)
-}
-function isMediaBunnyEnabled(): boolean {
-  return getMediaBunnyMode() !== "disabled"
-}
-// 仅在启用 MediaBunny 时注册 AC3 解码器
-if (isMediaBunnyEnabled()) {
-  registerAc3Decoder()
-}
 
 export interface Data {
   drive_id: string
@@ -106,7 +84,6 @@ const Preview = () => {
   let option: Option = {
     id: pathname(),
     container: "#video-player",
-    title: objStore.obj.name,
     volume: 1.0,
     autoplay: getSettingBool("video_autoplay"),
     autoSize: false,
@@ -149,9 +126,6 @@ const Preview = () => {
     theme: getMainColor(),
     quality: [],
     plugins: [AutoHeightPlugin],
-    ...(getMediaBunnyMode() === "full"
-      ? { proxy: artplayerProxyMediabunny() }
-      : {}),
     whitelist: [],
     screenshot: true,
     settings: [],
@@ -332,33 +306,7 @@ const Preview = () => {
       }),
     )
   }
-  // 添加 MediaBunny 播放器三档模式选择到设置菜单
-  const mediabunnyModeLabel = (m: MediaBunnyMode) =>
-    m === "disabled" ? "禁用" : m === "audio_only" ? "仅音频" : "全部解码"
-  option.settings?.push({
-    id: "setting_mediabunny",
-    html: "MediaBunny 播放器",
-    tooltip: mediabunnyModeLabel(getMediaBunnyMode()),
-    icon: '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
-    selector: (["disabled", "audio_only", "full"] as MediaBunnyMode[]).map(
-      (m) => ({
-        html: mediabunnyModeLabel(m),
-        name: m,
-        default: getMediaBunnyMode() === m,
-      }),
-    ),
-    onSelect: function (item: Setting) {
-      const newMode = item.name as MediaBunnyMode
-      setMediaBunnyMode(newMode)
-      setTimeout(() => {
-        if (confirm("切换播放器模式需要刷新页面才能生效，是否立即刷新？")) {
-          location.reload()
-        }
-      }, 100)
-      return mediabunnyModeLabel(newMode)
-    },
-  })
-  const [loading, post] = useFetch(
+  const [, post] = useFetch(
     (): PResp<Data> =>
       r.post("/fs/other", {
         path: pathname(),
@@ -379,11 +327,6 @@ const Preview = () => {
         return
       }
       option.url = list[list.length - 1].url
-      // 预下载首区块（不阻塞）—— 在 player 创建与 mediabunny 初始化期间后台填充浏览器缓存
-      void prefetchVideoChunks(option.url as string, {
-        byteRange: 8 * 1024 * 1024,
-        timeoutMs: 3000,
-      })
       option.quality = list.map((item, i) => {
         return {
           html: item.template_id,
@@ -392,10 +335,6 @@ const Preview = () => {
         }
       })
       player = new Artplayer(option)
-      // “仅音频”模式：原生 <video> 解码视频，mediabunny 只提供音轨
-      if (getMediaBunnyMode() === "audio_only") {
-        audioPatch = attachMediabunnyAudio(player, option.url as string)
-      }
       let auto_fullscreen: boolean
       switch (searchParams["auto_fullscreen"]) {
         case "true":
@@ -456,8 +395,6 @@ const Preview = () => {
   })
   let interval: number
   let curSeek: number
-  // audio_only 模式下的音频补丁器（提到外层作用域，供 resetPlayUrl 访问）
-  let audioPatch: ReturnType<typeof attachMediabunnyAudio> | undefined
   async function resetPlayUrl() {
     const resp = await post()
     handleResp(resp, async (data) => {
@@ -480,22 +417,7 @@ const Preview = () => {
       player.quality = quality
       curSeek = player.currentTime
       let curPlaying = player.playing
-      const newUrl = quality[quality.length - 1].url
-      // 切清晰度前也预下载一下新 url 的首区块
-      void prefetchVideoChunks(newUrl, {
-        byteRange: 8 * 1024 * 1024,
-        timeoutMs: 3000,
-      })
-      await player.switchUrl(newUrl)
-      // 切换 url 后，重新装障音频补丁，让 mediabunny 上新 url 的音轨
-      if (getMediaBunnyMode() === "audio_only" && audioPatch) {
-        try {
-          audioPatch.destroy()
-        } catch (_) {
-          /* ignore */
-        }
-        audioPatch = attachMediabunnyAudio(player, newUrl)
-      }
+      await player.switchUrl(quality[quality.length - 1].url)
       if (!curPlaying) player.pause()
       setTimeout(() => {
         player.seek = curSeek
@@ -503,7 +425,14 @@ const Preview = () => {
     })
   }
   onCleanup(() => {
-    player?.destroy()
+    setShouldKeepState(false)
+    if (player) {
+      player.fullscreenWeb = false
+      player.fullscreen = false
+      player.pip = false
+      if (player.video) player.video.src = ""
+      player.destroy()
+    }
     window.clearInterval(interval)
   })
   const [autoNext, setAutoNext] = createSignal()

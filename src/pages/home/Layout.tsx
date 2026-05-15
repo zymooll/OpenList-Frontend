@@ -5,20 +5,13 @@ import { notify } from "~/utils"
 import { Body } from "./Body"
 import { Footer } from "./Footer"
 import { Toolbar } from "./toolbar/Toolbar"
-import { onMount } from "solid-js"
-
-let announcementShown = false
 
 const Index = () => {
   useTitle(getSetting("site_title"))
   const announcement = getSetting("announcement")
-
-  onMount(() => {
-    if (announcement && !announcementShown) {
-      notify.render(() => <Markdown children={announcement} />)
-      announcementShown = true
-    }
-  })
+  if (announcement) {
+    notify.render(<Markdown children={announcement} />)
+  }
   return (
     <div
       style={{

@@ -14,6 +14,7 @@ export enum Group {
   FTP,
   TRAFFIC,
   MEDIA,
+  TRANSCODE,
 }
 export enum Flag {
   PUBLIC,

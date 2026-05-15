@@ -10,7 +10,7 @@ import {
 import { useColorMode } from "@hope-ui/solid"
 import { MediaLayout } from "../MediaLayout"
 import { MediaBrowser } from "../MediaBrowser"
-import { getMediaItem } from "~/utils/media_api"
+import { getMediaItem, requestTranscodePlay } from "~/utils/media_api"
 import type { MediaItem, EpisodeInfo } from "~/types"
 import { getMediaName, parseAuthors, parseEpisodes } from "~/types"
 import { api, base_path, ext } from "~/utils"
@@ -187,21 +187,47 @@ const VideoPlayer = (props: {
   }
   const videoTitle = () => props.title ?? getMediaName(props.item)
 
-  onMount(() => {
+  onMount(async () => {
     if (!playerContainer) return
-    const fileExt = ext(props.item.file_name)
+    let fileExt = ext(props.item.file_name)
 
-    // 在创建播放器之前，先预下载视频文件的前几个区块。
-    // 不 await：后台异步进行，Artplayer 初始化过程与预取同时进行，由浏览器 HTTP
-    // 缓存负责后续请求命中。mediabunny / 原生 <video> 请求同一 URL 后会命中缓存。
-    void prefetchVideoChunks(videoUrl(), {
-      byteRange: 8 * 1024 * 1024,
-      timeoutMs: 3000,
-    })
+    // ---- 云端转码判断 ----
+    // 播放前先调用后端转码决策接口，如果需要转码则使用 HLS master_url 播放
+    let useTranscode = false
+    let actualUrl = videoUrl()
+    try {
+      const filePath =
+        props.filePath ??
+        `${props.item.folder_path?.replace(/\/$/, "") ?? ""}/${props.item.file_name}`
+      const tcResp = await requestTranscodePlay(filePath)
+      if (
+        tcResp.code === 200 &&
+        tcResp.data?.transcode &&
+        tcResp.data.master_url
+      ) {
+        useTranscode = true
+        actualUrl = tcResp.data.master_url
+        fileExt = "m3u8"
+        console.log(
+          `[transcode] 媒体库使用云端转码播放: job=${tcResp.data.job_id}, profile=${tcResp.data.profile}`,
+        )
+      }
+    } catch (e) {
+      // 转码接口失败（可能未开启），静默降级到直链播放
+      console.debug("[transcode] 转码接口不可用，使用直链播放", e)
+    }
+
+    // 预下载视频文件的前几个区块（仅直链模式，转码模式由 HLS.js 管理）
+    if (!useTranscode) {
+      void prefetchVideoChunks(videoUrl(), {
+        byteRange: 8 * 1024 * 1024,
+        timeoutMs: 3000,
+      })
+    }
 
     player = new Artplayer({
       container: playerContainer,
-      url: videoUrl(),
+      url: actualUrl,
       title: videoTitle(),
       volume: 1.0,
       autoplay: false,
@@ -219,16 +245,159 @@ const VideoPlayer = (props: {
       mutex: true,
       playsInline: true,
       type: fileExt,
-      // 仅在 "full" 模式下使用 proxy 接管。audio_only 下 video 仍是原生解码，mediabunny 只提供音轨（onMount 后装障）
-      ...(getMediaBunnyMode() === "full"
+      // 【重要】转码模式下一律使用 HLS.js，不使用 mediabunny proxy，
+      // 避免 proxy 与 HLS.js 同时接管 video 元素导致双重加载、重复请求。
+      // 只有直链播放且 mediabunny=full 时才启用 proxy。
+      ...(!useTranscode && getMediaBunnyMode() === "full"
         ? { proxy: artplayerProxyMediabunny() }
         : {}),
       customType: {
-        m3u8: (video: HTMLMediaElement, src: string) => {
-          hlsPlayer = new Hls()
+        m3u8: (video: HTMLMediaElement, src: string, art: Artplayer) => {
+          // 【重复创建保护】customType 可能被 Artplayer 多次触发（如 url 刷新、
+          // proxy + customType 冲突），创建多个 Hls 实例会导致同一个 video
+          // 元素上多个 HLS.js 并发拉取 playlist 和切片，产生请求风暴。
+          if (hlsPlayer) {
+            console.warn(
+              "[hls] customType triggered again, destroying previous instance",
+            )
+            hlsPlayer.destroy()
+            hlsPlayer = undefined
+          }
+          hlsPlayer = new Hls({
+            // 缓冲策略：适当增大缓冲区，减少频繁请求切片
+            maxBufferLength: 30, // 最大前向缓冲 30 秒（小于最小 playlist 长度，避免超前请求）
+            maxMaxBufferLength: 60, // 极端情况下最大 60 秒
+            maxBufferSize: 60 * 1024 * 1024, // 缓冲区最大 60MB
+            maxBufferHole: 0.5, // 允许的缓冲空洞 0.5 秒
+            // EVENT 类型 playlist 刷新策略：
+            // 转码进行中 playlist 为 EVENT 类型，需要定期刷新以获取新切片
+            // 但不能太频繁，否则浪费带宽
+            levelLoadingMaxRetry: 4,
+            levelLoadingRetryDelay: 1000,
+            // 【关键】关闭 progressive 和 worker，避免主线程+worker 同时请求切片
+            // progressive=true 在 EVENT playlist 下会导致重复请求同一切片填冲缓冲区
+            progressive: false,
+            enableWorker: false,
+            // 降低 fragment 加载重试频率
+            fragLoadingMaxRetry: 4,
+            fragLoadingRetryDelay: 1000,
+            // 关键：设置 backBufferLength 保留已播放的缓冲区，
+            // 避免 seek 回退时重新请求已下载的切片
+            backBufferLength: 60,
+            // 【关键】EVENT 类型 playlist 的动态刷新间隔，
+            // 默认根据 TARGETDURATION 调整，这里明确设置避免过频轮询
+            liveSyncDuration: 6,
+            liveMaxLatencyDuration: 30,
+          })
+
+          // ---- 防止 play() 与 HLS.js load 竞态 ----
+          // HLS.js attachMedia 会异步接管 video 媒体源，在 manifest 解析完成前
+          // 任何 play() 调用都会被浏览器中断并抛出 AbortError。
+          // 解决方案：拦截 video.play()，在 manifest 就绪前将请求排队，就绪后自动执行。
+          let hlsReady = false
+          let pendingPlay = false
+          const origPlay = video.play.bind(video)
+          video.play = function () {
+            if (hlsReady) {
+              return origPlay()
+            }
+            // manifest 尚未就绪，记录待播放状态，稍后自动触发
+            pendingPlay = true
+            console.debug("[hls] play() deferred, waiting for manifest")
+            return Promise.resolve()
+          } as typeof video.play
+
           hlsPlayer.loadSource(src)
           hlsPlayer.attachMedia(video)
-          if (!video.src) video.src = src
+
+          // ---- 【最终兜底】单切片请求次数限流 ----
+          // 无论什么原因（codec 不匹配、recoverMediaError 死循环、buffer append 失败等），
+          // 如果同一个切片 URL 被请求超过 5 次，说明已经陷入无法恢复的死循环，
+          // 直接销毁 hls 实例，避免后端被请求洪水冲垮。
+          const fragRequestCount = new Map<string, number>()
+          const MAX_PER_FRAG = 5
+          hlsPlayer.on(Hls.Events.FRAG_LOADING, (_: any, data: any) => {
+            const url = data?.frag?.url || data?.frag?.relurl || ""
+            if (!url) return
+            const cnt = (fragRequestCount.get(url) || 0) + 1
+            fragRequestCount.set(url, cnt)
+            if (cnt > MAX_PER_FRAG) {
+              console.error(
+                `[hls] fragment requested ${cnt} times, aborting to prevent flood: ${url}`,
+              )
+              if (hlsPlayer) {
+                hlsPlayer.destroy()
+                hlsPlayer = undefined
+              }
+              hlsReady = true
+              video.play = origPlay
+              // 提示用户
+              try {
+                art.notice.show = "播放失败：转码切片格式异常，请检查后端日志"
+              } catch {
+                // ignore
+              }
+            }
+          })
+
+          hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.debug("[hls] manifest parsed, ready to play")
+            hlsReady = true
+            // 恢复原始 play 方法
+            video.play = origPlay
+            // 如果在等待期间有 play 请求，现在执行
+            if (pendingPlay) {
+              pendingPlay = false
+              origPlay().catch((e: any) => {
+                // 忽略用户手势限制等非致命错误
+                if (e.name !== "AbortError") {
+                  console.warn("[hls] deferred play failed:", e)
+                }
+              })
+            }
+          })
+
+          // ---- HLS.js 错误恢复（带限流，防止坏切片导致死循环）----
+          let recoverCount = 0
+          let lastRecoverAt = 0
+          let swapAudioCodecTried = false
+          hlsPlayer.on(Hls.Events.ERROR, (_: any, data: any) => {
+            if (!data.fatal) return
+            console.error("[hls] fatal error:", data.type, data.details)
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR && hlsPlayer) {
+              const now = Date.now()
+              // 距离上次恢复 <3s 视为同一坏切片，累计计数；否则重置
+              if (now - lastRecoverAt < 3000) {
+                recoverCount++
+              } else {
+                recoverCount = 1
+              }
+              lastRecoverAt = now
+              if (recoverCount === 1) {
+                console.warn("[hls] recoverMediaError() #1")
+                hlsPlayer.recoverMediaError()
+              } else if (recoverCount === 2 && !swapAudioCodecTried) {
+                console.warn("[hls] recoverMediaError() #2 + swapAudioCodec()")
+                swapAudioCodecTried = true
+                hlsPlayer.swapAudioCodec()
+                hlsPlayer.recoverMediaError()
+              } else {
+                // 超过 2 次连续 media error → 放弃，避免后端切片被无限请求
+                console.error(
+                  "[hls] media error unrecoverable, giving up to prevent request flood",
+                )
+                hlsPlayer.destroy()
+                hlsPlayer = null
+                hlsReady = true
+                video.play = origPlay
+              }
+            } else {
+              hlsReady = true
+              video.play = origPlay // 恢复，避免永久拦截
+            }
+          })
+          // 注意：不要手动设置 video.src，HLS.js attachMedia 已接管媒体源
+          // 手动赋值会导致 video 重新加载，与 Artplayer 的 play() 产生竞态
         },
         flv: (video: HTMLMediaElement, src: string) => {
           flvPlayer = mpegts.createPlayer({ type: "flv", url: src })
@@ -270,18 +439,28 @@ const VideoPlayer = (props: {
       ],
     })
 
-    // “仅音频”模式：原生 <video> 负责视频解码，mediabunny 只提供音轨。
-    // 这里手动 attach，避免原生音轨（可能不支持的编码如 AC3）与 mediabunny 同时出声。
-    if (getMediaBunnyMode() === "audio_only") {
+    // "仅音频"模式：原生 <video> 负责视频解码，mediabunny 只提供音轨。
+    // 仅在直链模式下生效，转码模式已经是 HLS 流，不需要 mediabunny 音频补丁。
+    if (!useTranscode && getMediaBunnyMode() === "audio_only") {
       attachMediabunnyAudio(player, videoUrl())
     }
   })
 
   onCleanup(() => {
-    if (player?.video) player.video.src = ""
-    player?.destroy()
-    hlsPlayer?.destroy()
-    flvPlayer?.destroy()
+    // 先销毁 HLS/FLV 播放器，再销毁 Artplayer
+    // 避免 Artplayer destroy 时触发 video.src 变更导致多余的 load 事件
+    if (hlsPlayer) {
+      hlsPlayer.destroy()
+      hlsPlayer = undefined
+    }
+    if (flvPlayer) {
+      flvPlayer.destroy()
+      flvPlayer = undefined
+    }
+    if (player) {
+      player.destroy()
+      player = undefined
+    }
   })
 
   return (

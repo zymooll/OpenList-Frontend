@@ -198,3 +198,22 @@ export const adminImportMediaDB = (file: File, scanPathId?: number) => {
     }>
   >
 }
+
+// ==================== 转码 API ====================
+
+/** 转码播放响应 */
+export interface TranscodePlayResult {
+  transcode: boolean
+  reason?: string
+  job_id?: string
+  master_url?: string
+  profile?: string
+}
+
+/** 申请转码播放
+ *  前端在播放视频前调用此接口，后端根据文件大小/编码/后缀等决策是否需要转码。
+ *  - transcode=false → 走原有直链播放
+ *  - transcode=true  → 使用返回的 master_url (HLS) 播放
+ */
+export const requestTranscodePlay = (path: string) =>
+  r.post("/fs/transcode/play", { path }) as Promise<Resp<TranscodePlayResult>>

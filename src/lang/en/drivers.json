@@ -1383,6 +1383,7 @@
   },
   "WPS": {
     "cookie": "Cookie",
+    "custom_ua": "Custom ua",
     "mode": "Mode",
     "modes": {
       "Business": "Business",
