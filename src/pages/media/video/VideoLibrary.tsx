@@ -17,7 +17,6 @@ import { api, base_path, ext } from "~/utils"
 import Artplayer from "artplayer"
 import artplayerProxyMediabunny from "~/components/artplayer-proxy-mediabunny"
 import { attachMediabunnyAudio } from "~/components/artplayer-proxy-mediabunny/AudioPatch"
-import { prefetchVideoChunks } from "~/components/artplayer-proxy-mediabunny/Prefetcher"
 import Hls from "hls.js"
 import mpegts from "mpegts.js"
 import { registerAc3Decoder } from "@mediabunny/ac3"
@@ -217,13 +216,12 @@ const VideoPlayer = (props: {
       console.debug("[transcode] 转码接口不可用，使用直链播放", e)
     }
 
-    // 预下载视频文件的前几个区块（仅直链模式，转码模式由 HLS.js 管理）
-    if (!useTranscode) {
-      void prefetchVideoChunks(videoUrl(), {
-        byteRange: 8 * 1024 * 1024,
-        timeoutMs: 3000,
-      })
-    }
+    // 【预加载策略】
+    // 1. 不在创建播放器时主动预取，避免点击视频立即触发数据加载；
+    // 2. <video> 设为 preload="none"，浏览器不会自动 metadata/auto；
+    // 3. HLS 模式下使用 autoStartLoad=false，attachMedia 不会立刻拉切片；
+    //    在用户点击播放时才开始加载，且初始仅缓冲约 1 个分块；
+    //    待第一个分块开始播放后再放宽缓冲到约 10 个分块顺序缓存。
 
     player = new Artplayer({
       container: playerContainer,
@@ -263,29 +261,30 @@ const VideoPlayer = (props: {
             hlsPlayer.destroy()
             hlsPlayer = undefined
           }
+          // 【按需加载策略】
+          //   - autoStartLoad=false：attachMedia 后不会立即拉取切片，
+          //     等用户点击播放时再 startLoad()，避免点开视频就开始下载。
+          //   - 初始 maxBufferLength=1 秒：仅触发第一个分块加载即可起播；
+          //     播放开始后会被动态扩大到 INITIAL → FULL（见下方 play 事件）。
+          //   - 顺序缓存最多约 10 个分块：常见转码切片为 6 秒/块，
+          //     因此 FULL_BUFFER_SECONDS = 6 * 10 = 60 秒。
+          const INITIAL_BUFFER_SECONDS = 1
+          const FULL_BUFFER_SECONDS = 60
           hlsPlayer = new Hls({
-            // 缓冲策略：适当增大缓冲区，减少频繁请求切片
-            maxBufferLength: 30, // 最大前向缓冲 30 秒（小于最小 playlist 长度，避免超前请求）
-            maxMaxBufferLength: 60, // 极端情况下最大 60 秒
-            maxBufferSize: 60 * 1024 * 1024, // 缓冲区最大 60MB
-            maxBufferHole: 0.5, // 允许的缓冲空洞 0.5 秒
-            // EVENT 类型 playlist 刷新策略：
-            // 转码进行中 playlist 为 EVENT 类型，需要定期刷新以获取新切片
-            // 但不能太频繁，否则浪费带宽
+            // 关键：禁止 attachMedia 后自动加载 manifest/切片
+            autoStartLoad: false,
+            // 起步缓冲极小，仅够拉一个分块即可起播
+            maxBufferLength: INITIAL_BUFFER_SECONDS,
+            maxMaxBufferLength: INITIAL_BUFFER_SECONDS,
+            maxBufferSize: 16 * 1024 * 1024,
+            maxBufferHole: 0.5,
             levelLoadingMaxRetry: 4,
             levelLoadingRetryDelay: 1000,
-            // 【关键】关闭 progressive 和 worker，避免主线程+worker 同时请求切片
-            // progressive=true 在 EVENT playlist 下会导致重复请求同一切片填冲缓冲区
             progressive: false,
             enableWorker: false,
-            // 降低 fragment 加载重试频率
             fragLoadingMaxRetry: 4,
             fragLoadingRetryDelay: 1000,
-            // 关键：设置 backBufferLength 保留已播放的缓冲区，
-            // 避免 seek 回退时重新请求已下载的切片
             backBufferLength: 60,
-            // 【关键】EVENT 类型 playlist 的动态刷新间隔，
-            // 默认根据 TARGETDURATION 调整，这里明确设置避免过频轮询
             liveSyncDuration: 6,
             liveMaxLatencyDuration: 30,
           })
@@ -293,11 +292,26 @@ const VideoPlayer = (props: {
           // ---- 防止 play() 与 HLS.js load 竞态 ----
           // HLS.js attachMedia 会异步接管 video 媒体源，在 manifest 解析完成前
           // 任何 play() 调用都会被浏览器中断并抛出 AbortError。
-          // 解决方案：拦截 video.play()，在 manifest 就绪前将请求排队，就绪后自动执行。
+          // 解决方案：拦截 video.play()，在第一次播放时启动 HLS 加载，
+          // 在 manifest 就绪前将 play 请求排队，就绪后自动执行。
           let hlsReady = false
           let pendingPlay = false
+          let loadStarted = false // 是否已调用 startLoad（懒加载触发标志）
+          let bufferExpanded = false // 是否已把缓冲扩大到 FULL
           const origPlay = video.play.bind(video)
+          const ensureLoadStarted = () => {
+            if (loadStarted || !hlsPlayer) return
+            loadStarted = true
+            console.debug("[hls] startLoad() triggered by play()")
+            try {
+              hlsPlayer.startLoad(0)
+            } catch (e) {
+              console.warn("[hls] startLoad failed:", e)
+            }
+          }
           video.play = function () {
+            // 用户点击播放时才真正开始加载切片
+            ensureLoadStarted()
             if (hlsReady) {
               return origPlay()
             }
@@ -307,8 +321,30 @@ const VideoPlayer = (props: {
             return Promise.resolve()
           } as typeof video.play
 
+          // attachMedia 之前 loadSource 即可，autoStartLoad=false
+          // 保证 attachMedia 不会自动开始下载
           hlsPlayer.loadSource(src)
           hlsPlayer.attachMedia(video)
+
+          // 第一个切片开始播放后，把缓冲放宽到 ~10 个分块（约 60 秒）顺序缓存
+          const expandBufferOnPlaying = () => {
+            if (bufferExpanded || !hlsPlayer) return
+            bufferExpanded = true
+            try {
+              const cfg: any = hlsPlayer.config
+              cfg.maxBufferLength = FULL_BUFFER_SECONDS
+              cfg.maxMaxBufferLength = FULL_BUFFER_SECONDS
+              cfg.maxBufferSize = 60 * 1024 * 1024
+              console.debug(
+                `[hls] buffer expanded to ${FULL_BUFFER_SECONDS}s (~10 fragments)`,
+              )
+            } catch (e) {
+              console.warn("[hls] expand buffer failed:", e)
+            }
+          }
+          video.addEventListener("playing", expandBufferOnPlaying, {
+            once: true,
+          })
 
           // ---- 【最终兜底】单切片请求次数限流 ----
           // 无论什么原因（codec 不匹配、recoverMediaError 死循环、buffer append 失败等），
@@ -409,6 +445,12 @@ const VideoPlayer = (props: {
         // @ts-ignore
         "webkit-playsinline": true,
         playsInline: true,
+        // 【预加载控制】
+        // - 转码模式：HLS.js 接管媒体源，preload 对其无实质影响；
+        // - 直链模式：preload="none" 使浏览器在点击播放前不加载任何数据，
+        //   避免进入页面立即产生多个范围请求。点击播放后浏览器
+        //   会自动按需拉取，不会一次性下载过多。
+        preload: "none",
       },
       settings: [
         {

@@ -9,6 +9,7 @@ import {
   Match,
 } from "solid-js"
 import { useColorMode } from "@hope-ui/solid"
+import { useSearchParams } from "@solidjs/router"
 import {
   getMediaList,
   getMediaFolders,
@@ -97,16 +98,47 @@ export const MediaBrowser = (props: MediaBrowserProps) => {
     isDark() ? "#64748b" : "#94a3b8",
   )
 
+  // URL 查询参数（持久化页码、便于浏览器前进/后退恢复浏览状态）
+  const [searchParams, setSearchParams] = useSearchParams<{ page?: string }>()
+
   const [viewMode, setViewMode] = createSignal<ViewMode>("waterfall")
   const [browseMode, setBrowseMode] = createSignal<BrowseMode>("all")
   const [orderBy, setOrderBy] = createSignal<OrderBy>("name")
   const [orderDir, setOrderDir] = createSignal<OrderDir>("asc")
-  const [page, setPage] = createSignal(1)
+  // 初始化时从 URL 中读取 page，便于从详情页返回时恢复
+  const initialPage = (() => {
+    const p = parseInt(searchParams.page ?? "1", 10)
+    return Number.isFinite(p) && p > 0 ? p : 1
+  })()
+  const [page, setPageRaw] = createSignal(initialPage)
   const [keyword, setKeyword] = createSignal("")
   const [selectedFolder, setSelectedFolder] = createSignal("")
   const [selectedScanPathId, setSelectedScanPathId] = createSignal<number>(0)
   const [selectedTypeTag, setSelectedTypeTag] = createSignal("")
   const [selectedContentTag, setSelectedContentTag] = createSignal("")
+  // 页码跳转输入框中的值
+  const [pageInput, setPageInput] = createSignal(String(initialPage))
+
+  // 包装 setPage：同步到 URL
+  const setPage = (p: number) => {
+    setPageRaw(p)
+    setPageInput(String(p))
+    // 写入 URL（page=1 时移除参数让 URL 更干净）
+    setSearchParams(
+      { page: p === 1 ? undefined : String(p) },
+      { replace: false, scroll: false },
+    )
+  }
+
+  // 监听 URL 变化（浏览器前进/后退时同步内部 state）
+  createEffect(() => {
+    const p = parseInt(searchParams.page ?? "1", 10)
+    const valid = Number.isFinite(p) && p > 0 ? p : 1
+    if (valid !== page()) {
+      setPageRaw(valid)
+      setPageInput(String(valid))
+    }
+  })
 
   const pageSize = 40
 
@@ -584,10 +616,27 @@ export const MediaBrowser = (props: MediaBrowserProps) => {
             display: "flex",
             "justify-content": "center",
             "align-items": "center",
+            "flex-wrap": "wrap",
             gap: "8px",
             "margin-top": "32px",
           }}
         >
+          <button
+            disabled={page() <= 1}
+            onClick={() => setPage(1)}
+            style={{
+              background: paginationBg(),
+              border: `1px solid ${paginationBorder()}`,
+              "border-radius": "8px",
+              color:
+                page() <= 1 ? paginationDisabledColor() : paginationColor(),
+              padding: "6px 10px",
+              cursor: page() <= 1 ? "not-allowed" : "pointer",
+              "font-size": "13px",
+            }}
+          >
+            « 首页
+          </button>
           <button
             disabled={page() <= 1}
             onClick={() => setPage(page() - 1)}
@@ -624,6 +673,83 @@ export const MediaBrowser = (props: MediaBrowserProps) => {
             }}
           >
             下一页 →
+          </button>
+          <button
+            disabled={page() >= totalPages()}
+            onClick={() => setPage(totalPages())}
+            style={{
+              background: paginationBg(),
+              border: `1px solid ${paginationBorder()}`,
+              "border-radius": "8px",
+              color:
+                page() >= totalPages()
+                  ? paginationDisabledColor()
+                  : paginationColor(),
+              padding: "6px 10px",
+              cursor: page() >= totalPages() ? "not-allowed" : "pointer",
+              "font-size": "13px",
+            }}
+          >
+            尾页 »
+          </button>
+          {/* 跳转输入框 */}
+          <span style={{ color: paginationInfoColor(), "font-size": "13px" }}>
+            跳至
+          </span>
+          <input
+            type="number"
+            min="1"
+            max={totalPages()}
+            value={pageInput()}
+            onInput={(e) => setPageInput(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const n = parseInt(pageInput(), 10)
+                if (Number.isFinite(n) && n >= 1 && n <= totalPages()) {
+                  setPage(n)
+                } else {
+                  setPageInput(String(page()))
+                }
+              }
+            }}
+            onBlur={() => {
+              const n = parseInt(pageInput(), 10)
+              if (!Number.isFinite(n) || n < 1 || n > totalPages()) {
+                setPageInput(String(page()))
+              }
+            }}
+            style={{
+              background: paginationBg(),
+              border: `1px solid ${paginationBorder()}`,
+              "border-radius": "6px",
+              color: paginationColor(),
+              padding: "4px 8px",
+              "font-size": "13px",
+              width: "60px",
+              "text-align": "center",
+              outline: "none",
+            }}
+          />
+          <button
+            onClick={() => {
+              const n = parseInt(pageInput(), 10)
+              if (Number.isFinite(n) && n >= 1 && n <= totalPages()) {
+                setPage(n)
+              } else {
+                setPageInput(String(page()))
+              }
+            }}
+            style={{
+              background: paginationBg(),
+              border: `1px solid ${paginationBorder()}`,
+              "border-radius": "6px",
+              color: paginationColor(),
+              padding: "5px 10px",
+              cursor: "pointer",
+              "font-size": "13px",
+            }}
+          >
+            跳转
           </button>
         </div>
       </Show>
