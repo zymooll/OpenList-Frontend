@@ -63,8 +63,8 @@ importers:
         specifier: ^1.16.1
         version: 1.16.1
       bencode:
-        specifier: ^4.0.0
-        version: 4.0.0
+        specifier: ^4.0.1
+        version: 4.0.1
       chardet:
         specifier: ^2.1.1
         version: 2.1.1
@@ -1833,8 +1833,8 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  bencode@4.0.0:
-    resolution: {integrity: sha512-AERXw18df0pF3ziGOCyUjqKZBVNH8HV3lBxnx5w0qtgMIk4a1wb9BkcCQbkp9Zstfrn/dzRwl7MmUHHocX3sRQ==}
+  bencode@4.0.1:
+    resolution: {integrity: sha512-/bCR3FvgfB8AZk4LlowShU+nfaTNRM2vruJ9aejDa5LpgkCoRjFyEauFiZFxbpxVxQbBFapYCN42Er2dkE/Qgw==}
     engines: {node: '>=12.20.0'}
 
   binary-extensions@2.3.0:
@@ -5481,7 +5481,7 @@ snapshots:
 
   baseline-browser-mapping@2.10.7: {}
 
-  bencode@4.0.0:
+  bencode@4.0.1:
     dependencies:
       uint8-util: 2.2.5
 
