@@ -96,8 +96,8 @@ importers:
         specifier: ^7.0.0
         version: 7.0.0
       katex:
-        specifier: ^0.16.45
-        version: 0.16.45
+        specifier: ^0.17.0
+        version: 0.17.0
       libheif-js:
         specifier: ^1.19.8
         version: 1.19.8
@@ -2588,6 +2588,10 @@ packages:
 
   katex@0.16.45:
     resolution: {integrity: sha512-pQpZbdBu7wCTmQUh7ufPmLr0pFoObnGUoL/yhtwJDgmmQpbkg/0HSVti25Fu4rmd1oCR6NGWe9vqTWuWv3GcNA==}
+    hasBin: true
+
+  katex@0.17.0:
+    resolution: {integrity: sha512-Vdw0ATsQ9V+LuegM/BTwQqV/6cTl5lbGcIrU+BCgLxyf6bo38ybOr372tuSIxir3CN720flu1meYR6XzNMwQnw==}
     hasBin: true
 
   khroma@2.1.0:
@@ -6255,6 +6259,10 @@ snapshots:
       setimmediate: 1.0.5
 
   katex@0.16.45:
+    dependencies:
+      commander: 8.3.0
+
+  katex@0.17.0:
     dependencies:
       commander: 8.3.0
 
