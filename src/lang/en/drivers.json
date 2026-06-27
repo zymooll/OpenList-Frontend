@@ -218,6 +218,11 @@
     "url": "Url",
     "username": "Username"
   },
+  "AliDoc": {
+    "cookie": "Cookie",
+    "cookie-tips": "钉钉文档网页 Cookie",
+    "root_folder_id": "Root folder id"
+  },
   "Alias": {
     "details_pass_through": "Details pass through",
     "download_concurrency": "Download concurrency",
@@ -1493,6 +1498,7 @@
     "189CloudPC": {},
     "189CloudTV": {},
     "AList V3": {},
+    "AliDoc": {},
     "Alias": {},
     "Aliyundrive": {
       "alert": "There may be an infinite loop bug in this driver.\nDeprecated, no longer maintained and will be removed in a future version.\nWe recommend using the official driver AliyundriveOpen."
@@ -1590,6 +1596,7 @@
     "189CloudPC": "189CloudPC",
     "189CloudTV": "189CloudTV",
     "AList V3": "AList V3",
+    "AliDoc": "AliDoc",
     "Alias": "Alias",
     "Aliyundrive": "Aliyundrive",
     "AliyundriveOpen": "AliyundriveOpen",
