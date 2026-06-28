@@ -1,6 +1,6 @@
 import { Upload, SetUpload } from "./types"
 import { Resp } from "~/types"
-import { r, pathDir } from "~/utils"
+import { r, pathBase, pathDir } from "~/utils"
 
 type DirectUploadCompletionInfo = {
   url?: string
@@ -169,14 +169,15 @@ async function completeDirectUpload(
   }
 
   let body: BodyInit | undefined
-  if (complete.body !== undefined && complete.body !== null) {
-    if (typeof complete.body === "string") {
-      body = complete.body
+  const completeBody = normalizeCompleteBody(complete.body, uploadPath)
+  if (completeBody !== undefined && completeBody !== null) {
+    if (typeof completeBody === "string") {
+      body = completeBody
     } else {
       if (!headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json")
       }
-      body = JSON.stringify(complete.body)
+      body = JSON.stringify(completeBody)
     }
   }
 
@@ -197,5 +198,19 @@ async function completeDirectUpload(
   }
   if (data && data.code !== 200) {
     throw new Error(data.message || "Complete upload failed")
+  }
+}
+
+function normalizeCompleteBody(body: unknown, uploadPath?: string): unknown {
+  if (!uploadPath || typeof body !== "object" || body === null) {
+    return body
+  }
+  if (Array.isArray(body)) {
+    return body
+  }
+  return {
+    ...(body as Record<string, unknown>),
+    path: pathDir(uploadPath),
+    file_name: pathBase(uploadPath),
   }
 }
