@@ -1,8 +1,7 @@
 import { objStore } from "~/store"
 import { FormUpload } from "./form"
 import { StreamUpload } from "./stream"
-import { HttpDirectUpload } from "./direct"
-import { PdsDirectUpload } from "./pds"
+import { HttpDirectUpload, PdsDirectUpload } from "./direct"
 import { Upload } from "./types"
 
 type Uploader = {
